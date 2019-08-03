@@ -161,7 +161,6 @@ if __name__ == "__main__":
 						 representation='BoW',
 						 inference='logistic_regression')
 
-
 	# SentimentalAnalysis(files_dir,
 	# 					 level='text',
 	# 					 representation='GloVe',
