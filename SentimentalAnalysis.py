@@ -70,6 +70,8 @@ class SentimentalAnalysis:
 		Returns:
 		train/test datasets as pandas dataframes.
 		"""
+
+		print("Loading...")
 		import os
 		self.data = {}
 		for split in ["train", "test"]:
@@ -154,14 +156,14 @@ class SentimentalAnalysis:
 
 if __name__ == "__main__":
 	files_dir = '../data/aclImdb/'
-	# SentimentalAnalysis(files_dir,
-	# 					 level='text',
-	# 					 representation='BoW',
-	# 					 inference='logistic_regression')
 	SentimentalAnalysis(files_dir,
 						 level='text',
-						 representation='GloVe',
+						 representation='BoW',
 						 inference='logistic_regression')
+	# SentimentalAnalysis(files_dir,
+	# 					 level='text',
+	# 					 representation='GloVe',
+	# 					 inference='logistic_regression')
 
 	# files = ["../data/aclImdb/train/labeledBow.feat","./data/aclImdb/test/labeledBow.feat"]
 	#
