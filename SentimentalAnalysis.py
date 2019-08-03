@@ -99,7 +99,6 @@ class SentimentalAnalysis:
 				self.w2v = dict(zip(self.word_model.wv.index2word, self.word_model.wv.syn0))
 
 		# ToDo : tag sentences if needed
-
 		np.random.shuffle(self.data["train"])
 		self.data["train"] = pd.DataFrame(self.data["train"],columns=['text', 'label'])
 		np.random.shuffle(self.data["test"])
@@ -164,7 +163,7 @@ if __name__ == "__main__":
 						 representation='GloVe',
 						 inference='logistic_regression')
 
-	# files = ["./data/aclImdb/train/labeledBow.feat","./data/aclImdb/test/labeledBow.feat"]
+	# files = ["../data/aclImdb/train/labeledBow.feat","./data/aclImdb/test/labeledBow.feat"]
 	#
 	# # Load data for training_data, training_target and testing_data, testing_target
 	# print("Loading Files ...")
