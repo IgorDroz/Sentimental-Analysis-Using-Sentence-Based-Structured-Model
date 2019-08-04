@@ -1,14 +1,13 @@
 import numpy as np
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 from time import time
 from sklearn.linear_model import LogisticRegression
 from sklearn.datasets import load_svmlight_files
-from sklearn.feature_extraction.text import TfidfTransformer,TfidfVectorizer
+from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import CountVectorizer
+import re
 
 class SentenceToVec(object):
 	"""
@@ -59,8 +58,8 @@ class SentimentalAnalysis:
 
 
 
-	# def load_files(self, files):
-	# 	return load_svmlight_files(files, n_features=None, dtype=None)
+	def load_files(self, files):
+		return load_svmlight_files(files, n_features=None, dtype=None)
 
 	def load_data(self):
 		"""Loads the IMDB train/test datasets from a folder path.
@@ -84,6 +83,8 @@ class SentimentalAnalysis:
 				for f_name in file_names:
 					with open(os.path.join(path, f_name), "r",encoding="utf8") as f:
 						review = f.read()
+						review = review.lower()
+						review = re.sub(r'[^\w\s]', '', review)
 						if self.level=='text':
 							self.data[split].append([review, score])
 						else:
