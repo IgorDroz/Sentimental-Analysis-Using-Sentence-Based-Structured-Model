@@ -8,24 +8,32 @@ from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import CountVectorizer
 import re
+from nltk import word_tokenize
+from nltk.util import ngrams
+from nltk.stem import PorterStemmer
+import gensim
+from gensim.models.phrases import Phrases, Phraser
+
 
 class SentenceToVec(object):
 	"""
 	represents sentences which each word is a word2Vec to a sentence vector
 	the sentence vector is made by the centroid of all words in the sentence
 	"""
-	def __init__(self, word2vec):
-		self.word2vec = word2vec
+	def __init__(self,modelName,model):
+		self.model = model
 		self.word2weight = None
-		self.dim = len(next(iter(word2vec.items()))[1])
-
-	def fit(self, X, y):
-		return self
+		self.modelName=modelName
 
 	def transform(self, X):
+		if self.modelName=='word2Vec':
+			self.dim = len(next(iter(self.model.items()))[1])
+		else:
+			self.dim=100 # default for fasttext
 		return np.array([
-			np.mean([self.word2vec[w] for w in words if w in self.word2vec] or
+			np.mean([self.model[w] for w in words if w in self.model] or
 					[np.zeros(self.dim)], axis=0)for words in X])
+
 
 class SentimentalAnalysis:
 	def __init__(self,data_dir,level='text',representation='BoW',inference='logistic_regression'):
@@ -35,11 +43,11 @@ class SentimentalAnalysis:
 		self.inference = inference
 
 		self.load_data()
+		self.preprocess()
 		if representation == 'BoW':
 			representation_data = self.tfidf()
-		elif representation == 'GloVe':
-			sent2Vec = SentenceToVec(self.w2v)
-			sent2Vec = sent2Vec.fit(self.data['train']['text'],self.data['train']['label'])
+		else:
+			sent2Vec = SentenceToVec(representation,self.w2v)
 			representation_data = [sent2Vec.transform(self.data['train']['text']),
 								   sent2Vec.transform(self.data['test']['text'])]
 
@@ -80,26 +88,23 @@ class SentimentalAnalysis:
 
 				path = os.path.join(self.data_dir, split, sentiment)
 				file_names = os.listdir(path)
+				# counter = 0
 				for f_name in file_names:
 					with open(os.path.join(path, f_name), "r",encoding="utf8") as f:
-						review = f.read()
-						review = review.lower()
-						review = re.sub(r'[^\w\s]', '', review)
+						# for debug purposes: #
+						# counter+=1
+						# if counter==3:
+						# 	break
+						#######################
+
+						review = f.read().lower()
 						if self.level=='text':
+							review = re.sub(r'[^\w\s]', '', review)
 							self.data[split].append([review, score])
 						else:
 							for sentence in review.split('. '):  # lines are not separated by \n
+								sentence = re.sub(r'[^\w\s]', '', sentence)
 								self.data[split].append([sentence.rstrip('.'), None])
-
-			if self.representation=='GloVe' and split=='train':
-				import gensim
-				from gensim.models.phrases import Phrases, Phraser
-				# let X be a list of tokenized texts (i.e. list of lists of tokens)
-				unigrams=list(map(lambda x: x[0].split(" "), self.data[split]))
-				bigrams = Phrases(unigrams,min_count=2)
-				bigram_phraser = Phraser(bigrams)
-				self.word_model = gensim.models.Word2Vec(bigram_phraser[unigrams], min_count=2)
-				self.w2v = dict(zip(self.word_model.wv.index2word, self.word_model.wv.syn0))
 
 		# ToDo : tag sentences if needed
 		np.random.shuffle(self.data["train"])
@@ -107,8 +112,36 @@ class SentimentalAnalysis:
 		np.random.shuffle(self.data["test"])
 		self.data["test"] = pd.DataFrame(self.data["test"],columns=['text', 'label'])
 
+		print("Finished Loading")
+
 	def getLabels(self):
 		return np.array(self.data['train']['label']),np.array(self.data['test']['label'])
+
+	def preprocess(self):
+		print("Starting to preprocess...")
+		for split in ['train','test']:
+			unigrams = [word_tokenize(sentence[0]) for sentence in self.data[split].values]
+			ps = PorterStemmer()
+			for idx,review in enumerate(unigrams):
+				stemmedSentence=[]
+				for word in review:
+					#stemmedSentence.append(ps.stem(word)) # stemming takes too long ...
+					stemmedSentence.append(word)
+				self.data[split].iloc[idx,0]=" ".join(stemmedSentence)
+
+		bigrams = Phrases(unigrams, min_count=2)
+		bigram_phraser = Phraser(bigrams)
+		if self.representation == 'word2Vec':
+			# let X be a list of tokenized texts (i.e. list of lists of tokens)
+			self.word_model = gensim.models.Word2Vec(bigram_phraser[unigrams], min_count=1)
+			self.w2v = dict(zip(self.word_model.wv.index2word, self.word_model.wv.syn0))
+		elif self.representation == 'fastText':
+			from gensim.models import FastText
+			self.word_model = FastText(bigram_phraser[unigrams], min_count=1)
+			self.w2v=dict(zip(self.word_model.wv.index2word, self.word_model.wv.syn0))
+
+
+		print("Finished preprocessing.")
 
 	# Calculating Tf-Idf for training and testing
 	def tfidf(self):
@@ -116,16 +149,19 @@ class SentimentalAnalysis:
 		testing_data=self.data['test']
 
 		# Transform each text into a vector of unigram,bigram counts
-		vectorizer = CountVectorizer(ngram_range=(1,2))
+		vectorizer = CountVectorizer(binary=True)
 		training_features = vectorizer.fit_transform(training_data["text"])
 		testing_features = vectorizer.transform(testing_data["text"])
-		tf_transformer = TfidfTransformer()
-		training_data_tfidf = tf_transformer.fit_transform(training_features)
-
-		# .transform on the testing data which computes the TF for each review,
-		# then the TF-IDF for each review using the IDF from the training data
-		testing_data_tfidf = tf_transformer.transform(testing_features)
-		return [training_data_tfidf ,testing_data_tfidf]
+		# vectorizer = CountVectorizer()
+		# tf_transformer = TfidfTransformer()
+		# training_data_tfidf = tf_transformer.fit_transform(training_features)
+		#
+		# # .transform on the testing data which computes the TF for each review,
+		# # then the TF-IDF for each review using the IDF from the training data
+		# testing_data_tfidf = tf_transformer.transform(testing_features)
+		# return [training_data_tfidf ,testing_data_tfidf]
+		#return [training_features.toarray(), testing_features.toarray()]
+		return [training_features, testing_features]
 
 
 	# Train and test Logistic Regression Classifier
@@ -164,8 +200,13 @@ if __name__ == "__main__":
 
 	# SentimentalAnalysis(files_dir,
 	# 					 level='text',
-	# 					 representation='GloVe',
+	# 					 representation='word2Vec',
 	# 					 inference='logistic_regression')
+
+	# SentimentalAnalysis(files_dir,
+	# 					level='text',
+	# 					representation='fastText',
+	# 					inference='logistic_regression')
 
 	# files = ["../data/aclImdb/train/labeledBow.feat","./data/aclImdb/test/labeledBow.feat"]
 	#
