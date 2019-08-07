@@ -35,35 +35,36 @@ class SentenceToVec(object):
 					[np.zeros(self.dim)], axis=0)for words in X])
 
 
+def tagSentences(data,domain):
+	if domain=='imdb':
+		files_dir = '../data/aclImdb/'
+	else:
+		files_dir = '../data/rt-polaritydata/'
+
+	sentenceSA = SentimentalAnalysis(files_dir,
+									 level='text',
+									 representation='BoW',
+									 inference='logistic_regression',
+									 shuffle=False)
+
+	sentenceSA.data['test']=data['train']
+	predictedLabels = sentenceSA.classify(Print=False)
+
+	for idx in range(len(data['train'].values)):
+		data['train'].iloc[idx,1]=predictedLabels[idx]
+
+
 class SentimentalAnalysis:
-	def __init__(self,data_dir,level='text',representation='BoW',inference='logistic_regression'):
+	def __init__(self,data_dir,level='text',representation='BoW',inference='logistic_regression',shuffle=True,infer=False):
 		self.data_dir = data_dir
 		self.level = level
 		self.representation = representation
 		self.inference = inference
-
+		self.shuffle=shuffle
+		self.infer=infer
 		self.load_data()
-		self.preprocess()
-		if representation == 'BoW':
-			representation_data = self.tfidf()
-		else:
-			sent2Vec = SentenceToVec(representation,self.w2v)
-			representation_data = [sent2Vec.transform(self.data['train']['text']),
-								   sent2Vec.transform(self.data['test']['text'])]
-
-		training_labels, testing_labels = self.getLabels()
-		training_features = representation_data[0]
-		testing_features = representation_data[1]
-
-		if inference=='logistic_regression':
-			print("Logistic Regression Classifier")
-			result = self.logisticReg(training_features, training_labels, testing_features, testing_labels)
-			print("Accuracy = {}% , Time = {} seconds".format(result[1], result[2]))
-		elif inference=='random_forest':
-			print("Random Forest Classifier")
-			result = self.random_forest(training_features, training_labels, testing_features, testing_labels)
-			print("Accuracy = {}% , Time = {} seconds".format(result[1], result[2]))
-
+		if infer:
+			self.classify()
 
 
 	def load_files(self, files):
@@ -88,14 +89,14 @@ class SentimentalAnalysis:
 
 				path = os.path.join(self.data_dir, split, sentiment)
 				file_names = os.listdir(path)
-				# counter = 0
+				counter = 0
 				for f_name in file_names:
 					with open(os.path.join(path, f_name), "r",encoding="utf8") as f:
-						# for debug purposes: #
-						# counter+=1
-						# if counter==3:
-						# 	break
-						#######################
+						## for debug purposes: ##
+						counter+=1
+						if counter==3:
+							break
+						#########################
 
 						review = f.read().lower()
 						if self.level=='text':
@@ -106,11 +107,14 @@ class SentimentalAnalysis:
 								sentence = re.sub(r'[^\w\s]', '', sentence)
 								self.data[split].append([sentence.rstrip('.'), None])
 
-		# ToDo : tag sentences if needed
-		np.random.shuffle(self.data["train"])
+		if self.shuffle==True:
+			np.random.shuffle(self.data["train"])
+			np.random.shuffle(self.data["test"])
 		self.data["train"] = pd.DataFrame(self.data["train"],columns=['text', 'label'])
-		np.random.shuffle(self.data["test"])
 		self.data["test"] = pd.DataFrame(self.data["test"],columns=['text', 'label'])
+
+		if self.level=='sentence':
+			tagSentences(self.data,domain='imdb')
 
 		print("Finished Loading")
 
@@ -143,6 +147,35 @@ class SentimentalAnalysis:
 
 		print("Finished preprocessing.")
 
+	def classify(self,Print=True):
+		self.preprocess()
+		if self.representation == 'BoW':
+			representation_data = self.tfidf() # tfidf is actually makes BoW representatiton atm
+		else:
+			sent2Vec = SentenceToVec(self.representation,self.w2v)
+			representation_data = [sent2Vec.transform(self.data['train']['text']),
+								   sent2Vec.transform(self.data['test']['text'])]
+
+		self.training_labels, self.testing_labels = self.getLabels()
+		self.training_features = representation_data[0]
+		self.testing_features = representation_data[1]
+
+		if Print:
+			if self.inference=='logistic_regression':
+				print("Logistic Regression Classifier")
+				result = self.logisticReg(self.training_features, self.training_labels, self.testing_features, self.testing_labels)
+				print("Accuracy = {}% , Time = {} seconds".format(result[1], result[2]))
+			elif self.inference=='random_forest':
+				print("Random Forest Classifier")
+				result = self.random_forest(self.training_features, self.training_labels, self.testing_features, self.testing_labels)
+				print("Accuracy = {}% , Time = {} seconds".format(result[1], result[2]))
+		else:
+			if self.inference=='logistic_regression':
+				result = self.logisticReg(self.training_features, self.training_labels, self.testing_features, self.testing_labels)
+			elif self.inference=='random_forest':
+				result = self.random_forest(self.training_features, self.training_labels, self.testing_features, self.testing_labels)
+		return result[0]
+
 	# Calculating Tf-Idf for training and testing
 	def tfidf(self):
 		training_data=self.data['train']
@@ -173,9 +206,12 @@ class SentimentalAnalysis:
 		lr.fit(training_data, training_target)
 		print("Training Done")
 		print("Testing ...")
-		lr_accuracy = lr.score(testing_data, testing_target) * 100
-		end = time()
-		return [lr, round(lr_accuracy ,2), str(round((end -start), 2))]
+		predictedLabels = lr.predict(testing_data)
+		if testing_target[0] is not None:
+			lr_accuracy = lr.score(testing_data, testing_target) * 100
+			end = time()
+			return [predictedLabels, round(lr_accuracy ,2), str(round((end -start), 2))]
+		return [predictedLabels, None, None]
 
 	# Train and test Random Forest Classifier
 	@staticmethod
@@ -186,27 +222,36 @@ class SentimentalAnalysis:
 		clf_forest.fit(training_data, training_target)
 		print("Training Done")
 		print("Testing ...")
+		predictedLabels = clf_forest.predict(testing_data)
 		clf_forest_accuracy = clf_forest.score(testing_data, testing_target) * 100
 		end = time()
-		return [clf_forest, round(clf_forest_accuracy, 2), str(round((end - start), 2))]
+		return [predictedLabels, round(clf_forest_accuracy, 2), str(round((end - start), 2))]
 
 
 if __name__ == "__main__":
 	files_dir = '../data/aclImdb/'
-	SentimentalAnalysis(files_dir,
-						 level='text',
-						 representation='BoW',
-						 inference='logistic_regression')
+	sa = SentimentalAnalysis(files_dir,
+							level='text',
+							representation='BoW',
+							inference='logistic_regression',
+							infer=True)
 
-	# SentimentalAnalysis(files_dir,
-	# 					 level='text',
-	# 					 representation='word2Vec',
+	# sa = SentimentalAnalysis(files_dir, #<----- this just creates a sentence level model with tagged sentences without inference
+	# 					 level='sentence',
+	# 					 representation='BoW',
 	# 					 inference='logistic_regression')
 
-	# SentimentalAnalysis(files_dir,
-	# 					level='text',
-	# 					representation='fastText',
-	# 					inference='logistic_regression')
+	# sa = SentimentalAnalysis(files_dir,
+	# 						level='text',
+	# 						representation='word2Vec',
+	# 						inference='logistic_regression',
+	# 						infer=True)
+
+	# sa = SentimentalAnalysis(files_dir,
+	# 						level='text',
+	# 						representation='fasttext',
+	# 						inference='logistic_regression',
+	# 						infer=True)
 
 	# files = ["../data/aclImdb/train/labeledBow.feat","./data/aclImdb/test/labeledBow.feat"]
 	#
