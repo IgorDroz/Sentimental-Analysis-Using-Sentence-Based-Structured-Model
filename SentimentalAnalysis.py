@@ -89,13 +89,15 @@ class SentimentalAnalysis:
 
 				path = os.path.join(self.data_dir, split, sentiment)
 				file_names = os.listdir(path)
-				counter = 0
+				# counter = 0
 				for f_name in file_names:
 					with open(os.path.join(path, f_name), "r",encoding="utf8") as f:
 						## for debug purposes: ##
-						counter+=1
-						if counter==3:
-							break
+
+						# counter+=1
+						# if counter==3:
+						# 	break
+
 						#########################
 
 						review = f.read().lower()
