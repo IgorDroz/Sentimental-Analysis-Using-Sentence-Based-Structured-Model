@@ -223,9 +223,11 @@ class SentimentalAnalysis:
 		print("Training Done")
 		print("Testing ...")
 		predictedLabels = clf_forest.predict(testing_data)
-		clf_forest_accuracy = clf_forest.score(testing_data, testing_target) * 100
-		end = time()
-		return [predictedLabels, round(clf_forest_accuracy, 2), str(round((end - start), 2))]
+		if testing_target[0] is not None:
+			lr_accuracy = clf_forest.score(testing_data, testing_target) * 100
+			end = time()
+			return [predictedLabels, round(lr_accuracy ,2), str(round((end -start), 2))]
+		return [predictedLabels, None, None]
 
 
 if __name__ == "__main__":
