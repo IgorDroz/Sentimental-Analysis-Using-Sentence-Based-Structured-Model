@@ -106,7 +106,7 @@ class TextAnalysis:
         return np.dot(self.w, self.get_text_feature_vector(text, given_labels))
 
     def get_clique_score(self, sentence_1, sentence_2, label_1, label_2, text_label):
-        return np.dot(self.w, self.get_clique_score(sentence_1, sentence_2, label_1, label_2, text_label))
+        return np.dot(self.w, self.get_clique_feature_vector(sentence_1, sentence_2, label_1, label_2, text_label))
 
     def structured_perceptron(self, num_iterations):
         # Each iteration go over texts, find argmax, update w if argmax is incorrect
