@@ -75,9 +75,10 @@ class TextAnalysis:
             features += feature_family(sentence_1, sentence_2, label_1, label_2, text_label)
         feature_vector = np.zeros(self.total_features)
         # count features, convert to np.array
-        counts = Counter([self.feature_to_index[x] for x in features])
+        counts = Counter([self.feature_to_index.get(x, None) for x in features])
         for feature_number, count in counts.items():
-            feature_vector[feature_number] = count
+            if feature_number is not None:
+                feature_vector[feature_number] = count
         return feature_vector
 
     def get_text_feature_vector(self, text: Text, given_labels=None):
@@ -148,7 +149,7 @@ class TextAnalysis:
                 best_score = best_score_with_possible_text_label
                 best_text_label = possible_text_label
                 best_sentence_labels[-1] = best_last_label
-                for i in range(text.size-2, 0, -1):
+                for i in range(text.size-2, -1, -1):
                     best_sentence_labels[i] = backtrack_table[i][best_sentence_labels[i+1]]
 
         return best_sentence_labels, best_text_label
@@ -159,5 +160,7 @@ if __name__ == "__main__":
     probabilities = [[0.7, 0.7], [0.1, 0.4], [0.6, 0.1]]
     labels = [1,0,0]
     texts = [Text(raw_texts[x].split('.'), probabilities[x], labels[x]) for x in range(3)]
-    TextAnalysis(texts)
+    runner = TextAnalysis(texts)
+    runner.structured_perceptron(100)
+    print(runner.w)
 
