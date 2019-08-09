@@ -150,7 +150,7 @@ class TextAnalysis:
                 best_text_label = possible_text_label
                 best_sentence_labels[-1] = best_last_label
                 for i in range(text.size-2, -1, -1):
-                    best_sentence_labels[i] = backtrack_table[i][best_sentence_labels[i+1]]
+                    best_sentence_labels[i] = backtrack_table[i+1][best_sentence_labels[i+1]]
 
         return best_sentence_labels, best_text_label
 
@@ -163,4 +163,5 @@ if __name__ == "__main__":
     runner = TextAnalysis(texts)
     runner.structured_perceptron(100)
     print(runner.w)
+    print(runner.viterbi(texts[0]))
 
