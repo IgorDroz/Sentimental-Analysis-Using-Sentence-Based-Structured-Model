@@ -8,16 +8,18 @@ from sklearn.metrics import accuracy_score
 import pickle
 from sklearn.model_selection import train_test_split
 import itertools
-from TextAnalysis import Loader, Text
+from TextAnalysis import Text, ALL_METHODS
 import math
-class ProbabilityAnalysis:
 
-    def __init__(self, texts: List[Text], test, method: str, granularity=4, n_gram=3, ignore_duplicates = False):
+class ProbabilityAnalysis:
+    def __init__(self, texts: List[Text], test, method: str, granularity=4, n_gram=3, ignore_duplicates=False,
+                 strict_ngrams=False):
         self.texts = texts
         self.test = test
         self.method = method
         self.n_gram = n_gram
         self.granularity = granularity
+        self.strict_ngrams = strict_ngrams
         all_grams = []
         # Creating feature space
         for text in texts:
@@ -38,8 +40,12 @@ class ProbabilityAnalysis:
     def get_ngrams(self, probabilities, text_label):
         result = []
         labels = [int(x*self.granularity) for x in probabilities]
-        for n in range(1, self.n_gram+1):
+        if self.strict_ngrams:
+            n = self.n_gram+1
             result += [tuple([text_label] + labels[i:i+n]) for i in range(len(labels)-n+1)]
+        else:
+            for n in range(1, self.n_gram+1):
+                result += [tuple([text_label] + labels[i:i+n]) for i in range(len(labels)-n+1)]
         return result
 
     def get_test_accuracy(self):
@@ -55,17 +61,22 @@ class ProbabilityAnalysis:
 
 if __name__ == "__main__":
     #method = 'probability_BoW_Polarity'
-    results = {}
-    for method in ['probability_BoW_Polarity', 'probability_GloVe_Polarity', 'probability_FastText_Polarity']:
-        texts = Loader.load_texts_from_csv(method)
-        print(len(texts))
-        train, test = train_test_split(texts, train_size=0.8)
-        for gran in range(3,15):
-            for n_grams in range(3,6):
-                runner = ProbabilityAnalysis(train, test, method, gran, n_grams, ignore_duplicates=True)
-                acc = runner.get_test_accuracy()
-                results[method, gran, n_grams] = acc
-                print(method, 'gran:', gran, 'n_grams:', n_grams, 'accuracy:', acc)
-    for res in sorted(results.items(), key=lambda x: x[1]):
-        print(res)
+    # TODO: add cross-validation and calculate mean accuracy
+    for method in ALL_METHODS:
+        texts = Text.load_texts_from_csv(method)
+        train, test = train_test_split(texts, train_size=0.8, random_state=1)
+        results = {}
+        for ignore_duplicates in [True, False]:
+            # If ignore duplicates is True then only single n-gram of each type from single text is accounted
+            for strict_ngrams in [True, False]:
+                # If strict ngrams is True then only n-grams are accounted, else all k-grams are accounted for k<=n
+                for granularity in range(6, 15):
+                    for n_grams in range(1,6):
+                        runner = ProbabilityAnalysis(train, test, method, granularity, n_grams,
+                                                     ignore_duplicates=ignore_duplicates, strict_ngrams=strict_ngrams)
+                        acc = runner.get_test_accuracy()
+                        results[granularity, n_grams, ignore_duplicates, strict_ngrams] = acc
+        print("\n\nSORTED RESULTS FOR " + method + ".\nCOLUMNS:, granularity, n_grams, ignoring_duplicates, strict_ngrams, accuracy")
+        for res in sorted(results.items(), key=lambda x: x[1], reverse=True):
+            print(res)
 

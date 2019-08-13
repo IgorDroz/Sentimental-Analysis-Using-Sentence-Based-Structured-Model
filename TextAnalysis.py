@@ -2,22 +2,26 @@ import numpy as np
 import pandas as pd
 import os
 from time import time
-from typing import List
+from typing import List, Dict
 from collections import Counter
 from sklearn.metrics import accuracy_score
 import pickle
 from sklearn.model_selection import train_test_split
 import itertools
+
+ALL_METHODS = ['probability_BoW_Polarity', 'probability_GloVe_Polarity', 'probability_FastText_Polarity']
+
 """
 Feature_family is function, which given text_label and pair of sentences returns list of string, where each string 
 represents active feature from this family. We need string representation to map those features to indecies.
 """
-
-
+# TODO: maybe we shall think about some additional features ?
 def label_features(prev_sentence, sentence, prev_label, label, text_label):
-    pair_labels = ['pair_label ' + str(prev_label) + str(label) + str(text_label)]
-    single_labels = ['single_label ' + str(label) + str(text_label)]
-    return pair_labels + single_labels
+    result = []
+    result.append('label1 ' + str(label) + str(text_label))
+    result.append('label2 ' + str(prev_label) + str(label))
+    result.append('label3 ' + str(prev_label) + str(label) + str(text_label))
+    return result
 
 
 def ngram_features(prev_sentence, sentence, prev_label, label, text_label):
@@ -36,41 +40,52 @@ def ngram_features(prev_sentence, sentence, prev_label, label, text_label):
     return result
 
 
-all_feature_families = [ngram_features]
+all_feature_families = [label_features, ngram_features]
 
 
 class Text:
-    # TODO: think if we want sentence as string or list of words
-    def __init__(self, id, sentences: List[str], sentence_probabilities: List[float], text_label):
+    @staticmethod
+    def load_texts_from_csv(method):
+        backup_path = 'texts'+'.pkl'
+        if os.path.exists(backup_path):
+            with open(backup_path, 'rb') as f:
+                texts = pickle.load(f)
+                for text in texts:
+                    text.set_method(method)
+                return texts
+        path = 'sentencesDS.csv'
+        df = pd.read_csv(path).set_index('text_id')
+        texts = []
+        for text_id in df.index.unique():
+            sub_df = df.loc[text_id]
+            if len(sub_df) < 6 or type(sub_df) == pd.Series or np.any(sub_df['sentence'].isna()):
+                # print('skipping', text_id)
+                continue
+            probabilities = {x: list(sub_df[x]) for x in ALL_METHODS}
+            texts.append(Text(text_id, list(sub_df['sentence']), probabilities, sub_df['text_label'].values[0], method))
+        print('Loaded',len(texts), 'texts from csv')
+        with open(backup_path, 'wb') as f:
+            pickle.dump(texts, f)
+        return texts
+
+    def __init__(self, id, sentences: List[str], sentence_probabilities: Dict[str, List[float]], text_label, method):
         self.sentences = sentences
         self.label = text_label
-        self.probabilities = sentence_probabilities
+        self._all_probabilities = sentence_probabilities
+        self.probabilities = self._all_probabilities[method]
         self.sentence_labels = [round(x) for x in self.probabilities]
         self.feature_counts = {}
         self.size = len(sentences)
         self.id = id
+        self.method = method
+
+    def set_method(self, method):
+        self.method = method
+        self.probabilities = self._all_probabilities[method]
+        self.sentence_labels = [round(x) for x in self.probabilities]
 
 
 class TextAnalysis:
-
-    @staticmethod
-    def get_analyzer(method):
-        backup_path = 'runner_' + method + '.pkl'
-        if os.path.exists(backup_path):
-            with open(backup_path, 'rb') as f:
-                runner = pickle.load(f)
-                if sum(runner.w) == 0:
-                    runner.w, runner.iterations = Loader.load_vector(runner)
-                return runner
-        texts = Loader.load_texts_from_csv(method)
-        print(len(texts))
-        start = time()
-        train, test = train_test_split(texts, train_size=0.8)
-        runner = TextAnalysis(train, test, method)
-        print('built feature space in', time()-start, runner.total_features)
-        with open(backup_path, 'wb') as f:
-           pickle.dump(runner, f)
-        return runner
     """
     This class learn text level model and make inference with it
     1) Go through all pairs of sentences from every text, and create feature space by looking at possible features
@@ -81,6 +96,22 @@ class TextAnalysis:
         go over all texts. for each text:
             find argmax labeling of text using current weights vector. If it's not correct - update weights vector
     """
+    @staticmethod
+    def get_analyzer(method):
+        backup_path = 'runner_' + method + '.pkl'
+        if os.path.exists(backup_path):
+            with open(backup_path, 'rb') as f:
+                # TODO: Find latest vector for current method in ./vectors and load it to the model.
+                return pickle.load(f)
+        texts = Text.load_texts_from_csv(method)
+        start = time()
+        train, test = train_test_split(texts, train_size=0.8, random_state=1)
+        runner = TextAnalysis(train, test, method)
+        print('built feature space in', time()-start, 'total_features', runner.total_features)
+        with open(backup_path, 'wb') as f:
+           pickle.dump(runner, f)
+        return runner
+
     def __init__(self, texts: List[Text], test, method: str):
         self.texts = texts
         self.test = test
@@ -160,7 +191,7 @@ class TextAnalysis:
 
     def structured_perceptron(self, num_iterations, starting_iteration=0):
         # Each iteration go over texts, find argmax, update w if argmax is incorrect
-        # I also added fancy penalty term
+        # TODO: test different penalty terms
         alpha = 0.5
         for i in range(num_iterations):
             start = time()
@@ -221,33 +252,9 @@ class TextAnalysis:
             accuracy.append(text_accuracy)
         return sum(accuracy) / len(accuracy)
 
-class Loader:
-    @staticmethod
-    def load_texts_from_csv(method):
-        backup_path = 'texts_'+method+'.pkl'
-        if os.path.exists(backup_path):
-            with open(backup_path, 'rb') as f:
-                return pickle.load(f)
-        path = 'sentencesDS.csv'
-        df = pd.read_csv(path).set_index('text_id')
-        texts = []
-        for text_id in df.index.unique():
-            x = df.loc[text_id]
-            if len(x) < 6 or type(x) == pd.Series or np.any(x['sentence'].isna()):
-                # print('skipping', text_id)
-                continue
-            texts.append(Text(text_id, list(x['sentence']), list(x[method]), x['text_label'].values[0]))
-        with open(backup_path, 'wb') as f:
-            pickle.dump(texts, f)
-        return texts
-
-    @staticmethod
-    def load_vector(runner):
-        return np.zeros(runner.total_features), 0
-
-
-
 if __name__ == "__main__":
+    if not os.path.exists('./vectors'):
+        os.mkdir('vectors')
     method = 'probability_BoW_Polarity'
     runner = TextAnalysis.get_analyzer(method)
     runner.structured_perceptron(100)
