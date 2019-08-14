@@ -1,15 +1,15 @@
 import numpy as np
 import pandas as pd
 import os
-from time import time
+from time import time, asctime
 from typing import List, Dict
 from collections import Counter
 from sklearn.metrics import accuracy_score
 import pickle
 from sklearn.model_selection import train_test_split
 import itertools
-
-ALL_METHODS = ['probability_BoW_Polarity', 'probability_GloVe_Polarity', 'probability_FastText_Polarity']
+import logging
+ALL_METHODS = ['probability_BoW_Polarity', 'probability_GloVe_Polarity', 'probability_FastText_Polarity', 'random']
 
 """
 Feature_family is function, which given text_label and pair of sentences returns list of string, where each string 
@@ -28,12 +28,12 @@ def ngram_features(prev_sentence, sentence, prev_label, label, text_label):
     words = [x.lower() for x in sentence.split(' ') if len(x)]
     result = []
     for x in words:
-        result.append('unigram1 ' + str(text_label) + x)
+        result.append('unigram1 ' + str(text_label) + str(prev_label) + str(label) + x)
         result.append('unigram2 ' + str(label) + str(text_label) + x)
         result.append('unigram3 ' + str(label) + x)
         result.append('unigram4 ' + str(prev_label) + str(label)+x)
     for i in range(len(words) - 1):
-        result.append('bigram1 ' + str(text_label) + words[i] + ' ' + words[i+1])
+        result.append('bigram1 ' + str(text_label) + str(prev_label) + str(label) + words[i] + ' ' + words[i+1])
         result.append('bigram2 ' + str(label) + str(text_label) + words[i] + ' ' + words[i+1])
         result.append('bigram3 ' + str(label) + words[i] + ' ' + words[i+1])
         result.append('bigram4 ' + str(prev_label) + str(label) + words[i] + ' ' + words[i+1])
@@ -55,6 +55,7 @@ class Text:
                 return texts
         path = 'sentencesDS.csv'
         df = pd.read_csv(path).set_index('text_id')
+        df['random'] = np.random.uniform(0, 1, len(df))
         texts = []
         for text_id in df.index.unique():
             sub_df = df.loc[text_id]
@@ -63,7 +64,7 @@ class Text:
                 continue
             probabilities = {x: list(sub_df[x]) for x in ALL_METHODS}
             texts.append(Text(text_id, list(sub_df['sentence']), probabilities, sub_df['text_label'].values[0], method))
-        print('Loaded',len(texts), 'texts from csv')
+        logging.debug(' '.join(['Loaded',len(texts), 'texts from csv']))
         with open(backup_path, 'wb') as f:
             pickle.dump(texts, f)
         return texts
@@ -98,6 +99,9 @@ class TextAnalysis:
     """
     @staticmethod
     def get_analyzer(method):
+        logging.basicConfig(level=logging.DEBUG, filename=str(asctime()).replace(':', '_').replace(' ', '_') + '.log', filemode='w')
+        logging.getLogger().addHandler(logging.StreamHandler())
+        logging.info('METHOD: ' + method)
         backup_path = 'runner_' + method + '.pkl'
         if os.path.exists(backup_path):
             with open(backup_path, 'rb') as f:
@@ -107,7 +111,7 @@ class TextAnalysis:
         start = time()
         train, test = train_test_split(texts, train_size=0.8, random_state=1)
         runner = TextAnalysis(train, test, method)
-        print('built feature space in', time()-start, 'total_features', runner.total_features)
+        logging.debug(' '.join(['built feature space in', str(time()-start), 'total_features', str(runner.total_features)]))
         with open(backup_path, 'wb') as f:
            pickle.dump(runner, f)
         return runner
@@ -130,7 +134,7 @@ class TextAnalysis:
                 prev_label = text.sentence_labels[i]
             texts_f.append(f)
             if ind%1000 == 0:
-                print('finished', ind+1, 'texts')
+                logging.debug(' '.join(['finished', str(ind+1), 'texts']))
         all_features = list(itertools.chain.from_iterable(texts_f))
         usage_counts = Counter(all_features)
         # assign index to each feature
@@ -206,11 +210,12 @@ class TextAnalysis:
                     penalty = self.get_text_feature_counts(text, (predicted_sentence_labels, predicted_text_label)) #alpha*(1-text_accuracy) + (1-alpha)*sentence_accuracy
                     self.update_from_counts(penalty, '-')
             self.iterations += 1
-            print('finished iteration', self.iterations, 'in', time()-start, 'train accuracy is', sum(accuracy_at_i)/len(accuracy_at_i))
+            logging.info(' '.join(['finished iteration', str(self.iterations), 'in', str(time()-start),
+                                   'train accuracy is', str(sum(accuracy_at_i)/len(accuracy_at_i))]))
             if self.iterations%5 == 0:
                 with open('vectors/' + self.method + str(self.iterations) +'.pkl', 'wb') as f:
                     pickle.dump(self.w, f)
-                print('test accuracy', self.get_test_accuracy())
+                logging.info(' '.join([self.method, 'test accuracy', str(self.get_test_accuracy())]))
 
     def viterbi(self, text: Text, test=False):
         best_score = -100000
@@ -255,7 +260,7 @@ class TextAnalysis:
 if __name__ == "__main__":
     if not os.path.exists('./vectors'):
         os.mkdir('vectors')
-    method = 'probability_BoW_Polarity'
+    method = ALL_METHODS[0]
     runner = TextAnalysis.get_analyzer(method)
     runner.structured_perceptron(100)
 
