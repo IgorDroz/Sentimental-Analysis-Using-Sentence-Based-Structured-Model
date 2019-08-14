@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-
 from time import time
 from typing import List
 from collections import Counter
@@ -63,7 +62,7 @@ class TextAnalysis:
         # assign index to each feature
         self.feature_to_index = {feature:index for index, feature in enumerate(sorted(all_features))}
         self.total_features = len(self.feature_to_index)
-        self.w = np.ones(self.total_features)
+        self.w = np.zeros(self.total_features)
         # go through all texts, and convert text.features(list of strings) to np.array
         for text in texts:
             text.feature_vector = self.get_text_feature_vector(text)
