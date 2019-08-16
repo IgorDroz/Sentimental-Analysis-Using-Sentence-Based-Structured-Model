@@ -29,12 +29,12 @@ def ngram_features(prev_sentence, sentence, prev_label, label, text_label):
     words = [x.lower() for x in sentence.split(' ') if len(x)]
     result = []
     for x in words:
-        result.append('unigram1 ' + str(text_label) + str(prev_label) + str(label) + x)
+        result.append('unigram1 ' + str(text_label) + x)
         result.append('unigram2 ' + str(label) + str(text_label) + x)
         result.append('unigram3 ' + str(label) + x)
         result.append('unigram4 ' + str(prev_label) + str(label)+x)
     for i in range(len(words) - 1):
-        result.append('bigram1 ' + str(text_label) + str(prev_label) + str(label) + words[i] + ' ' + words[i+1])
+        result.append('bigram1 ' + str(text_label) + words[i] + ' ' + words[i+1])
         result.append('bigram2 ' + str(label) + str(text_label) + words[i] + ' ' + words[i+1])
         result.append('bigram3 ' + str(label) + words[i] + ' ' + words[i+1])
         result.append('bigram4 ' + str(prev_label) + str(label) + words[i] + ' ' + words[i+1])
@@ -65,7 +65,7 @@ class Text:
                 continue
             probabilities = {x: list(sub_df[x]) for x in ALL_METHODS}
             texts.append(Text(text_id, list(sub_df['sentence']), probabilities, sub_df['text_label'].values[0], method))
-        logging.debug(' '.join(['Loaded',len(texts), 'texts from csv']))
+        logging.debug(' '.join(['Loaded',str(len(texts)), 'texts from csv']))
         with open(backup_path, 'wb') as f:
             pickle.dump(texts, f)
         return texts
@@ -100,21 +100,11 @@ class TextAnalysis:
     """
     @staticmethod
     def get_analyzer(method):
-        logging.basicConfig(level=logging.DEBUG, filename=str(asctime()).replace(':', '_').replace(' ', '_') + '.log', filemode='w')
-        logging.getLogger().addHandler(logging.StreamHandler())
-        logging.info('METHOD: ' + method)
-        backup_path = 'runner_' + method + '.pkl'
-        if os.path.exists(backup_path):
-            with open(backup_path, 'rb') as f:
-                # TODO: Find latest vector for current method in ./vectors and load it to the model.
-                return pickle.load(f)
         texts = Text.load_texts_from_csv(method)
         start = time()
         train, test = train_test_split(texts, train_size=0.8, random_state=1)
         runner = TextAnalysis(train, test, method)
         logging.debug(' '.join(['built feature space in', str(time()-start), 'total_features', str(runner.total_features)]))
-        with open(backup_path, 'wb') as f:
-           pickle.dump(runner, f)
         return runner
 
     def __init__(self, texts: List[Text], test, method: str):
@@ -261,7 +251,12 @@ class TextAnalysis:
 if __name__ == "__main__":
     if not os.path.exists('./vectors'):
         os.mkdir('vectors')
+    logging.basicConfig(level=logging.DEBUG, filename=str(asctime()).replace(':', '_').replace(' ', '_') + '.log',
+                        filemode='w')
+    logging.getLogger().addHandler(logging.StreamHandler())
+
     method = ALL_METHODS[0]
+    logging.info('METHOD: ' + method)
     runner = TextAnalysis.get_analyzer(method)
     runner.structured_perceptron(100)
 

@@ -48,9 +48,11 @@ class ProbabilityAnalysis:
                 result += [tuple([text_label] + labels[i:i+n]) for i in range(len(labels)-n+1)]
         return result
 
-    def get_test_accuracy(self):
+    def get_test_accuracy(self, test=None):
+        if test is None:
+            test = self.test
         accuracy = []
-        for text in self.test:
+        for text in test:
             prob_0 = sum([self.log_probabilities.get(x, 0) for x in self.get_ngrams(text.probabilities, 0)])
             prob_1 = sum([self.log_probabilities.get(x, 0) for x in self.get_ngrams(text.probabilities, 1)])
             predicted_text_label = 0 if prob_0 > prob_1 else 1
