@@ -12,6 +12,7 @@ import itertools
 import logging
 ALL_METHODS = ['probability_BoW_Polarity', 'probability_GloVe_Polarity', 'probability_FastText_Polarity', 'random']
 
+
 """
 Feature_family is function, which given text_label and pair of sentences returns list of string, where each string 
 represents active feature from this family. We need string representation to map those features to indecies.
@@ -46,15 +47,15 @@ all_feature_families = [label_features, ngram_features]
 
 class Text:
     @staticmethod
-    def load_texts_from_csv(method):
-        backup_path = 'texts'+'.pkl'
+    def load_texts_from_csv(method='random', test=False):
+        backup_path = ('test' if test else 'train')+'.pkl'
         if os.path.exists(backup_path):
             with open(backup_path, 'rb') as f:
                 texts = pickle.load(f)
                 for text in texts:
                     text.set_method(method)
                 return texts
-        path = 'sentencesDS.csv'
+        path = 'sentencesDSTest.csv' if test else 'sentencesDS.csv'
         df = pd.read_csv(path).set_index('text_id')
         df['random'] = np.random.uniform(0, 1, len(df))
         texts = []
@@ -65,7 +66,7 @@ class Text:
                 continue
             probabilities = {x: list(sub_df[x]) for x in ALL_METHODS}
             texts.append(Text(text_id, list(sub_df['sentence']), probabilities, sub_df['text_label'].values[0], method))
-        logging.debug(' '.join(['Loaded',str(len(texts)), 'texts from csv']))
+        logging.debug(' '.join(['Loaded', str(len(texts)), 'texts from csv']))
         with open(backup_path, 'wb') as f:
             pickle.dump(texts, f)
         return texts
@@ -86,6 +87,14 @@ class Text:
         self.probabilities = self._all_probabilities[method]
         self.sentence_labels = [round(x) for x in self.probabilities]
 
+    def get_probability(self):
+        import math
+        sentence_lengths = [len(sentence.split(' ')) for sentence in self.sentences]
+        total_words = sum(sentence_lengths)
+        sentence_scores = [math.log(p / (1 - p)) for p in self.probabilities]
+        text_score = sum([sentence_scores[i] * sentence_lengths[i] for i in range(self.size)]) / total_words
+        probability = math.exp(text_score) / (1 + math.exp(text_score))
+        return probability
 
 class TextAnalysis:
     """
@@ -98,18 +107,12 @@ class TextAnalysis:
         go over all texts. for each text:
             find argmax labeling of text using current weights vector. If it's not correct - update weights vector
     """
-    @staticmethod
-    def get_analyzer(method):
-        texts = Text.load_texts_from_csv(method)
-        start = time()
-        train, test = train_test_split(texts, train_size=0.8, random_state=1)
-        runner = TextAnalysis(train, test, method)
-        logging.debug(' '.join(['built feature space in', str(time()-start), 'total_features', str(runner.total_features)]))
-        return runner
 
-    def __init__(self, texts: List[Text], test, method: str):
+    def __init__(self, texts: List[Text], test, validation, method: str):
         self.texts = texts
         self.test = test
+        self.validation = validation
+        self.accuracies = {}
         self.method = method
         texts_f = []
         # Creating feature space
@@ -206,7 +209,9 @@ class TextAnalysis:
             if self.iterations%5 == 0:
                 with open('vectors/' + self.method + str(self.iterations) +'.pkl', 'wb') as f:
                     pickle.dump(self.w, f)
-                logging.info(' '.join([self.method, 'test accuracy', str(self.get_test_accuracy())]))
+                accuracy = self.get_accuracy()
+                self.accuracies[self.iterations] = accuracy
+                logging.info(' '.join([self.method, 'validation accuracy', str(accuracy)]))
 
     def viterbi(self, text: Text, test=False):
         best_score = -100000
@@ -231,7 +236,7 @@ class TextAnalysis:
 
             best_last_label = 0 if scores_table[-1][0] > scores_table[-1][1] else 1
             best_score_with_possible_text_label = scores_table[-1][best_last_label]
-            if best_score_with_possible_text_label > best_score:
+            if best_text_label == -1 or best_score_with_possible_text_label > best_score:
                 best_score = best_score_with_possible_text_label
                 best_text_label = possible_text_label
                 best_sentence_labels[-1] = best_last_label
@@ -240,23 +245,49 @@ class TextAnalysis:
 
         return best_sentence_labels, best_text_label
 
-    def get_test_accuracy(self):
+    def get_accuracy(self, validation=True):
         accuracy = []
-        for text in self.test:
+        to_test = self.validation if validation else self.test
+        for text in to_test:
             predicted_sentence_labels, predicted_text_label = self.viterbi(text)
             text_accuracy = predicted_text_label == text.label
             accuracy.append(text_accuracy)
         return sum(accuracy) / len(accuracy)
 
-if __name__ == "__main__":
+    def find_best_vector(self):
+        best_round = sorted(self.accuracies.items(), key=lambda x: x[1], reverse=True)[0][0]
+        with open('vectors/' + self.method + str(best_round) + '.pkl', 'rb') as f:
+            self.w = pickle.load(f)
+        final_accuracy = self.get_accuracy(False)
+        with open('results_' + self.method + '.txt', 'w') as f:
+            f.write('Best round: ' + str(best_round))
+            f.write('Validation accuracy: ' + str(self.accuracies[best_round]))
+            f.write('Test accuracy: ' + str(final_accuracy))
+
+
+def run():
     if not os.path.exists('./vectors'):
         os.mkdir('vectors')
     logging.basicConfig(level=logging.DEBUG, filename=str(asctime()).replace(':', '_').replace(' ', '_') + '.log',
                         filemode='w')
     logging.getLogger().addHandler(logging.StreamHandler())
 
-    method = ALL_METHODS[0]
-    logging.info('METHOD: ' + method)
-    runner = TextAnalysis.get_analyzer(method)
-    runner.structured_perceptron(100)
+    for method in ALL_METHODS[1:]:
+        logging.info('METHOD: ' + method)
+        texts = Text.load_texts_from_csv(method)
+        start = time()
+        # okay, this is insane shit, but without train_test_split some weird shit happens and code brokes.
+        # like really, if u put texts instead of train in TextAnalysis then train accuracy is close to 1, and test is 0.
+        # dafuq its 2 am, it took me 3 hours to find this out
+        # TODO: try to understand what the holy fuck happened here
+        train, _ = train_test_split(texts, train_size=0.9999, random_state=1)
+        all_test = Text.load_texts_from_csv(method, True)
+        validation, test = train_test_split(all_test, train_size=0.5, random_state=1)
+        runner = TextAnalysis(train, validation, test, method)
+        logging.debug(' '.join(['built feature space in', str(time() - start), 'total_features', str(runner.total_features)]))
+        runner.structured_perceptron(80)
+        runner.find_best_vector()
 
+
+if __name__ == "__main__":
+    run()
